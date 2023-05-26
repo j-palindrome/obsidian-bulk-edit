@@ -1,9 +1,11 @@
 {
   "name": "obsidian-metadata-wrangler",
   "version": "1.0.0",
-  "description": "Bulk edit metadata in Obsidian.",
+  "description": "Bulk edit metadata and tags in Obsidian.",
   "main": "main.js",
   "keywords": [],
   "author": "",
-  "scripts": {}
+  "scripts": {
+    "dev": "cd ../.. && npm run dev:mw"
+  }
 }

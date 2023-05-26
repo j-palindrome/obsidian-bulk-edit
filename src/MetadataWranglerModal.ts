@@ -11,6 +11,13 @@ import {
 import { DataArray, DataviewApi, getAPI } from 'obsidian-dataview'
 import invariant from 'tiny-invariant'
 
+type PropertyAction =
+  | {
+      action: 'delete' | 'inline' | 'frontmatter'
+    }
+  | { action: 'rename'; to: string }
+type TagAction = { action: 'delete' } | { action: 'add' }
+
 export default class MetadataWranglerModal extends Modal {
   file: TAbstractFile
   dv: DataviewApi
@@ -20,11 +27,8 @@ export default class MetadataWranglerModal extends Modal {
     syncLinksInMetadata: boolean
   }
   edits: {
-    property: Record<
-      string,
-      { action: 'rename'; to: string } | { action: 'delete' }
-    >
-    tag: Record<string, { action: 'delete' } | { action: 'add' }>
+    property: Record<string, PropertyAction>
+    tag: Record<string, TagAction>
   }
   displayProperties?: HTMLDivElement
   displayTags?: HTMLDivElement
@@ -79,37 +83,56 @@ export default class MetadataWranglerModal extends Modal {
       let renameText: TextComponent
       let renameDropdown: DropdownComponent
 
-      editProperty.setName(`Edit Property`).addDropdown((dropdown) => {
-        const files = this.files.array()
-        const options = _.fromPairs(
-          _.uniq(files.map((x) => _.keys(_.omit(x, 'file'))).flat()).map(
-            (x: string) =>
-              [x.toLowerCase(), x.toLowerCase()] as [string, string]
+      editProperty
+        .setName(`Edit Property`)
+        .addDropdown((dropdown) => {
+          const files = this.files.array()
+          const options = _.fromPairs(
+            _.uniq(files.map((x) => _.keys(_.omit(x, 'file'))).flat()).map(
+              (x: string) =>
+                [x.toLowerCase(), x.toLowerCase()] as [string, string]
+            )
           )
-        )
-        dropdown.addOptions(options)
-        dropdown.onChange((value) => {
-          const currentPropertyEdit = this.edits[type][value]
-          if (currentPropertyEdit) {
-            if (currentPropertyEdit.action === 'rename') {
-              renameText?.setValue(currentPropertyEdit.to)
-              this.updatePropertyEdits(type)
+          dropdown.addOptions(options)
+          dropdown.onChange((value) => {
+            const currentPropertyEdit = this.edits[type][value]
+            if (currentPropertyEdit) {
+              if (currentPropertyEdit.action === 'rename') {
+                renameText?.setValue(currentPropertyEdit.to)
+                this.updatePropertyEdits(type)
+              }
             }
-          }
+          })
+          renameDropdown = dropdown
         })
-        renameDropdown = dropdown
-      })
+        .addDropdown((dropdown) => {
+          const options = {
+            Cancel: 'cancel',
+            Delete: 'delete',
+            Rename: 'rename',
+            'Turn to inline': 'inline',
+            'Turn to frontmatter': 'frontmatter',
+          }
 
-      editProperty.addButton((button) => {
-        button.onClick(() => {
-          renameText?.setValue('')
-          this.edits[type][renameDropdown?.getValue()] = {
-            action: 'delete',
-          }
-          this.updatePropertyEdits(type)
+          dropdown.addOptions(options).onChange((value) => {
+            const values: Record<string, PropertyAction> = {
+              delete: {
+                action: 'delete',
+              },
+              rename: {
+                action: 'rename',
+                to: '',
+              },
+              inline: { action: 'inline' },
+              frontmatter: { action: 'frontmatter' },
+            }
+            const currentProperty = renameDropdown?.getValue()
+            invariant(currentProperty)
+            if (value === 'cancel') delete this.edits.property[currentProperty]
+            else this.edits.property[currentProperty] = values[value]
+            this.updatePropertyEdits(type)
+          })
         })
-        button.setButtonText('Delete')
-      })
 
       editProperty.addText((text) => {
         text.onChange((value) => {
@@ -123,28 +146,6 @@ export default class MetadataWranglerModal extends Modal {
         })
       })
 
-      editProperty.addButton((button) => {
-        button.onClick(() => {
-          const property = renameDropdown.getValue()
-          if (this.edits[type][property]?.action !== 'rename')
-            this.edits[type][property] = {
-              action: 'rename',
-              to: '',
-            }
-          this.updatePropertyEdits(type)
-        })
-        button.setButtonText('Rename')
-      })
-
-      editProperty.addButton((button) => {
-        button.onClick(() => {
-          invariant(renameDropdown)
-          delete this.edits[type][renameDropdown?.getValue()]
-          this.updatePropertyEdits(type)
-        })
-        button.setButtonText('Cancel')
-      })
-
       this.displayProperties = contentEl.appendChild(
         document.createElement('div')
       )
@@ -156,26 +157,36 @@ export default class MetadataWranglerModal extends Modal {
       let selectTagDropdown: DropdownComponent
       let addTagText: TextComponent
 
-      editTag.setName(`Edit Tag`).addDropdown((dropdown) => {
-        const options = _.fromPairs(
-          _.uniq(this.files['file']['tags']).map((x: string) => {
-            const formatted = x.toLowerCase().slice(1)
-            return [formatted, formatted] as [string, string]
-          })
-        )
-        dropdown.addOptions(options)
-        selectTagDropdown = dropdown
-      })
-
-      editTag.addButton((button) => {
-        button.onClick(() => {
-          this.edits[type][selectTagDropdown?.getValue()] = {
-            action: 'delete',
-          }
-          this.updatePropertyEdits(type)
+      editTag
+        .setName(`Edit Tag`)
+        .addDropdown((dropdown) => {
+          const options = _.fromPairs(
+            _.uniq(this.files['file']['tags']).map((x: string) => {
+              const formatted = x.toLowerCase().slice(1)
+              return [formatted, formatted] as [string, string]
+            })
+          )
+          dropdown.addOptions(options)
+          selectTagDropdown = dropdown
         })
-        button.setButtonText('Delete')
-      })
+        .addDropdown((dropdown) => {
+          const options: Record<string, TagAction['action'] | 'cancel'> = {
+            Delete: 'delete',
+            Add: 'add',
+            Cancel: 'cancel',
+          }
+          dropdown.addOptions(options).onChange((value) => {
+            const values: Record<TagAction['action'], TagAction> = {
+              delete: { action: 'delete' },
+              add: { action: 'add' },
+            }
+            const currentProperty = selectTagDropdown?.getValue()
+            invariant(currentProperty)
+            if (value === 'cancel') delete this.edits.property[currentProperty]
+            else this.edits.tag[currentProperty] = values[value]
+            this.updatePropertyEdits(type)
+          })
+        })
 
       let currentAddTagValue: string
       editTag.addText((text) => {
@@ -189,32 +200,6 @@ export default class MetadataWranglerModal extends Modal {
         addTagText = text
       })
 
-      editTag.addButton((button) => {
-        button.onClick(() => {
-          if (!currentAddTagValue) return
-          this.edits[type][currentAddTagValue] = {
-            action: 'add',
-          }
-          addTagText.setValue('')
-          currentAddTagValue = ''
-          this.updatePropertyEdits(type)
-        })
-        button.setButtonText('Add')
-      })
-
-      editTag.addButton((button) => {
-        button.onClick(() => {
-          selectTagDropdown?.getValue() &&
-            delete this.edits[type][selectTagDropdown?.getValue()]
-          if (addTagText?.getValue()) {
-            delete this.edits[type][addTagText?.getValue()]
-            addTagText.setValue('')
-          }
-          this.updatePropertyEdits(type)
-        })
-        button.setButtonText('Cancel')
-      })
-
       this.displayTags = contentEl.appendChild(document.createElement('div'))
     }
 
@@ -223,18 +208,9 @@ export default class MetadataWranglerModal extends Modal {
 
     new Setting(contentEl)
       .setName('Convert properties to lowercase')
-      .setDesc('All YAML properties will be renamed as lowercase.')
+      .setDesc('All YAML and Dataview properties will be made lowercase.')
       .addToggle((toggle) =>
         toggle.onChange((value) => (this.options.convertToLowercase = value))
-      )
-
-    new Setting(contentEl)
-      .setName('Sync links with metadata')
-      .setDesc(
-        'Any list of links below a final divider ("---") will be added to the YAML metadata.'
-      )
-      .addToggle((toggle) =>
-        toggle.onChange((value) => (this.options.syncLinksInMetadata = value))
       )
 
     new Setting(contentEl).addButton((button) =>
