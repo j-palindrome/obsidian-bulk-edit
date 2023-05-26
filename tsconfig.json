@@ -1,4 +1,7 @@
 {
   "extends": "../../../tsconfig.json",
-  "include": ["src", "/packages"]
+  "include": ["src", "/packages"],
+  "compilerOptions": {
+    "jsxImportSource": "only-jsx"
+  }
 }

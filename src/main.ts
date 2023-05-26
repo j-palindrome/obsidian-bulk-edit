@@ -1,7 +1,6 @@
 import { Menu, Notice, Plugin, TAbstractFile } from 'obsidian'
 import { getAPI } from 'obsidian-dataview'
 import MetadataWranglerModal from './MetadataWranglerModal'
-import RegexModal from './RegexModal'
 
 interface MySettings {}
 const DEFAULT_SETTINGS: MySettings = {}
@@ -25,12 +24,6 @@ export default class MetadataWrangler extends Plugin {
             .setTitle('Wrangle Metadata')
             .setIcon('layout-list')
             .onClick(() => new MetadataWranglerModal(file).open())
-        )
-        menu.addItem((item) =>
-          item
-            .setTitle('Regex Find & Replace')
-            .setIcon('search')
-            .onClick(() => new RegexModal(file).open())
         )
       })
     )
