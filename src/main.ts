@@ -23,9 +23,25 @@ export default class MetadataWrangler extends Plugin {
           item
             .setTitle('Wrangle Metadata')
             .setIcon('layout-list')
-            .onClick(() => new MetadataWranglerModal(file).open())
+            .onClick(() =>
+              new MetadataWranglerModal(
+                `"${file.path.replace('.md', '')}"`
+              ).open()
+            )
         )
       })
+    )
+
+    this.addCommand({
+      name: 'Bulk edit files',
+      id: 'bulk-edit',
+      callback: () => {
+        new MetadataWranglerModal('').open()
+      },
+    })
+
+    this.addRibbonIcon('zap', 'Bulk Edit', () =>
+      new MetadataWranglerModal('').open()
     )
   }
 
