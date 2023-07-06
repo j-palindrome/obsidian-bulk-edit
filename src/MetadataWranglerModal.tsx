@@ -12,36 +12,13 @@ import {
 import { DataArray, DataviewApi, getAPI } from 'obsidian-dataview'
 import invariant from 'tiny-invariant'
 import toStyle from 'to-style'
-
-type PropertyAction =
-  | {
-      action: 'delete' | 'inline' | 'frontmatter' | 'nested-tags'
-    }
-  | { action: 'rename'; to: string }
-type TagAction = { action: 'delete' } | { action: 'add' }
-type Preview = {
-  title: string
-  metadata: Record<string, string>
-  text: string
-}
-
-type Edit =
-  | { type: 'property'; edit: Record<string, PropertyAction> }
-  | {
-      type: 'tag'
-      edit: Record<string, TagAction>
-    }
-  | {
-      type: 'customJS'
-      edit: string
-    }
-  | { type: 'moveFiles'; edit: string }
-  | {
-      type: 'findAndReplace'
-      edit: { find: string; replace: string; flags: string }
-    }
-type EditedFile = { text: string; metadata: Record<string, any> }
-type PreviewFile = EditedFile & { title: string }
+import {
+  processCustomJS,
+  processFindAndReplace,
+  processMoveFiles,
+  processProperties,
+  processTags,
+} from './edits'
 
 export default class MetadataWranglerModal extends Modal {
   queryString: string
@@ -410,213 +387,6 @@ export default class MetadataWranglerModal extends Modal {
     this.displayPreview.appendChild(child as any)
   }
 
-  private findInlineFieldsRegex = (property: string) =>
-    new RegExp(`(^|\\[|\\()${property}:: .*?(\\]|\\)|$)\\n?`, 'gim')
-
-  private async getTextAndMetadata(thisFile: TFile): Promise<EditedFile> {
-    let text = await app.vault.read(thisFile)
-    let metadata = {}
-    await app.fileManager.processFrontMatter(
-      thisFile,
-      (frontmatter) => (metadata = frontmatter)
-    )
-    return { text, metadata }
-  }
-
-  private async setTextAndMetadata(
-    thisFile: TFile,
-    { text, metadata }: EditedFile
-  ) {
-    await this.app.vault.modify(thisFile, text)
-    await this.app.fileManager.processFrontMatter(thisFile, (frontmatter) => {
-      for (let property of _.keys(metadata))
-        frontmatter[property] = metadata[property]
-      for (let deletedProperty of _.difference(
-        _.keys(frontmatter),
-        _.keys(metadata)
-      )) {
-        delete metadata[deletedProperty]
-      }
-    })
-  }
-
-  async processMoveFiles(
-    thisFile: TFile,
-    preview: boolean
-  ): Promise<PreviewFile> {
-    invariant(this.edit?.type === 'moveFiles')
-    const metadata = {}
-    const targetFolder = app.vault.getAbstractFileByPath(
-      this.edit.edit
-    ) as TFolder
-    if (!(targetFolder instanceof TFolder)) throw new Error('path not a folder')
-
-    const newFileName = this.edit.edit + '/' + thisFile.name
-    if (!preview) this.app.fileManager.renameFile(thisFile, newFileName)
-    return { text: `MOVED TO ${newFileName}`, metadata, title: thisFile.name }
-  }
-
-  async processCustomJS(
-    thisFile: TFile,
-    preview: boolean
-  ): Promise<PreviewFile> {
-    invariant(this.edit?.type === 'customJS')
-
-    let { text, metadata } = await this.getTextAndMetadata(thisFile)
-
-    const customFunction = eval(`({text, frontmatter}) => {
-      ${this.edit.edit}
-      return text
-    }`)
-    text = customFunction({ text, metadata })
-    if (!preview) {
-      this.setTextAndMetadata(thisFile, { text, metadata })
-    }
-    return { text, metadata, title: thisFile.name }
-  }
-
-  async processFindAndReplace(
-    thisFile: TFile,
-    preview: boolean
-  ): Promise<PreviewFile> {
-    invariant(this.edit?.type === 'findAndReplace')
-
-    let text = await app.vault.read(thisFile)
-    if (new RegExp(this.edit.edit.find, this.edit.edit.flags).test(text)) {
-      text = text.replace(
-        new RegExp(this.edit.edit.find, this.edit.edit.flags),
-        this.edit.edit.replace.replace(/\\n/g, '\n')
-      )
-      if (!preview) app.vault.modify(thisFile, text)
-    }
-    return { metadata: {}, text, title: thisFile.name }
-  }
-
-  async processProperties(
-    thisFile: TFile,
-    preview: boolean,
-    dataviewFile: Record<string, any>
-  ): Promise<PreviewFile> {
-    invariant(this.edit?.type === 'property')
-
-    let { text, metadata } = await this.getTextAndMetadata(thisFile)
-
-    for (let [property, edit] of _.entries(this.edit.edit)) {
-      const searchExp = this.findInlineFieldsRegex(property)
-      switch (edit.action) {
-        case 'frontmatter':
-          const inlineProperty = text.match(searchExp)?.[0]
-          if (!inlineProperty) continue
-          const propertyValue = inlineProperty
-            .replace(/^\[\(/, '')
-            .replace(/\]\)\n?$/, '')
-            .split(':: ')[1]
-          if (!propertyValue) continue
-          metadata[property] = propertyValue
-          text = text.replace(searchExp, '')
-          break
-
-        case 'delete':
-          text = text.replace(searchExp, '')
-          delete metadata[property]
-          break
-
-        case 'rename':
-          const renameExp = new RegExp(`(\[|^)${property}::`, 'gm')
-          text = text.replace(renameExp, edit.to + '::')
-          if (metadata[property]) {
-            metadata[edit.to] = metadata[property]
-            delete metadata[property]
-          }
-          break
-
-        case 'inline':
-          if (metadata[property]) {
-            const searchExp = this.findInlineFieldsRegex(property)
-            let inlineString = metadata[property]
-              .toString()
-              .replace(/,(?!\s)/g, ', ')
-            if (property === 'tags')
-              inlineString = inlineString
-                .split(', ')
-                .map((tag: string) => '#' + tag)
-                .join(' ')
-
-            text = text.replace(searchExp, '')
-            text += `\n\n${property}:: ${inlineString}`
-            delete metadata[property]
-          }
-          break
-
-        case 'nested-tags':
-          const taggedProperty = dataviewFile[property]
-          if (!taggedProperty || typeof taggedProperty !== 'string') continue
-          const newTags = taggedProperty
-            .split(/(, *|\n)/)
-            .filter((item) => /\w/.test(item))
-            .map((item) => {
-              return (
-                property +
-                '/' +
-                item
-                  .toLowerCase()
-                  .replace(/^\s+/, '')
-                  .replace(/\s+$/, '')
-                  .replace(/\|.+\]\]$/, '')
-                  .replace(/\s/g, '-')
-                  .replace(/[^\w-]+/g, '')
-              )
-            })
-          if (metadata.tags && metadata.tags instanceof Array)
-            metadata.tags.push(...newTags)
-          else metadata.tags = newTags
-          metadata.tags = _.uniq(metadata.tags)
-          break
-      }
-    }
-
-    if (!preview) this.setTextAndMetadata(thisFile, { text, metadata })
-
-    return { text, metadata, title: thisFile.name }
-  }
-
-  async processTags(thisFile: TFile, preview: boolean): Promise<PreviewFile> {
-    invariant(this.edit?.type === 'tag')
-
-    let { text, metadata } = await this.getTextAndMetadata(thisFile)
-
-    for (let [tag, edit] of _.entries(this.edit.edit)) {
-      switch (edit.action) {
-        case 'delete':
-          text = text.replace(new RegExp(`#${tag}[\W$]?`, 'g'), '')
-          if (
-            metadata.tags &&
-            metadata.tags instanceof Array &&
-            metadata.tags.includes(tag)
-          ) {
-            _.pull(metadata.tags, tag)
-          } else if (
-            metadata.tags &&
-            typeof metadata.tags === 'string' &&
-            metadata.tags.includes(tag)
-          ) {
-            metadata.tags = metadata.tags.replace(new RegExp(tag, 'gi'), '')
-          }
-          break
-
-        case 'add':
-          if (!metadata.tags) metadata.tags = [tag]
-          else if (metadata.tags instanceof Array) metadata.tags.push(tag)
-          else metadata.tags += ' ' + tag
-          break
-      }
-    }
-
-    if (!preview) this.setTextAndMetadata(thisFile, { text, metadata })
-
-    return { text, metadata, title: thisFile.name }
-  }
-
   async process(preview = false) {
     if (!this.edit) return
 
@@ -628,17 +398,17 @@ export default class MetadataWranglerModal extends Modal {
         ) as TFile
         switch (this.edit.type) {
           case 'customJS':
-            return this.processCustomJS(thisFile, preview)
+            return processCustomJS(thisFile, this.edit, preview)
           case 'moveFiles':
-            return this.processMoveFiles(thisFile, preview)
+            return processMoveFiles(thisFile, this.edit, preview)
           case 'findAndReplace':
-            return this.processFindAndReplace(thisFile, preview)
+            return processFindAndReplace(thisFile, this.edit, preview)
           case 'property':
-            return this.processProperties(thisFile, preview, file)
+            return processProperties(thisFile, this.edit, preview, file)
           case 'tag':
-            return this.processTags(thisFile, preview)
+            return processTags(thisFile, this.edit, preview)
           default:
-            throw new Error('type failed')
+            throw new Error('edit type failed')
         }
       })
       .array()
