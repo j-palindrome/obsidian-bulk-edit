@@ -27,7 +27,7 @@ async function setTextAndMetadata(
       _.keys(frontmatter),
       _.keys(metadata)
     )) {
-      delete metadata[deletedProperty]
+      delete frontmatter[deletedProperty]
     }
   })
 }
@@ -36,13 +36,14 @@ export async function processMoveFiles(
   thisFile: TFile,
   edit: Edit,
   preview: boolean
-): Promise<PreviewFile> {
+): Promise<PreviewFile | []> {
   invariant(edit?.type === 'moveFiles')
   const metadata = {}
   const targetFolder = app.vault.getAbstractFileByPath(edit.edit) as TFolder
   if (!(targetFolder instanceof TFolder)) throw new Error('path not a folder')
 
   const newFileName = edit.edit + '/' + thisFile.name
+  if (newFileName === thisFile.path) return []
   if (!preview) app.fileManager.renameFile(thisFile, newFileName)
   return { text: `MOVED TO ${newFileName}`, metadata, title: thisFile.name }
 }
@@ -51,16 +52,21 @@ export async function processCustomJS(
   thisFile: TFile,
   edit: Edit,
   preview: boolean
-): Promise<PreviewFile> {
+): Promise<PreviewFile | []> {
   invariant(edit?.type === 'customJS')
 
   let { text, metadata } = await getTextAndMetadata(thisFile)
+  const originalMetadata = _.cloneDeep(metadata)
+  const originalText = text
 
   const customFunction = eval(`({text, frontmatter}) => {
       ${edit.edit}
       return text
     }`)
   text = customFunction({ text, metadata })
+
+  if (text === originalText && _.isEqual(metadata, originalMetadata)) return []
+
   if (!preview) {
     setTextAndMetadata(thisFile, { text, metadata })
   }
@@ -71,16 +77,21 @@ export async function processFindAndReplace(
   thisFile: TFile,
   edit: Edit,
   preview: boolean
-): Promise<PreviewFile> {
+): Promise<PreviewFile | []> {
   invariant(edit?.type === 'findAndReplace')
 
   let text = await app.vault.read(thisFile)
+  const originalText = text
+
   if (new RegExp(edit.edit.find, edit.edit.flags).test(text)) {
     text = text.replace(
       new RegExp(edit.edit.find, edit.edit.flags),
       edit.edit.replace.replace(/\\n/g, '\n')
     )
+    if (text === originalText) return []
     if (!preview) app.vault.modify(thisFile, text)
+  } else {
+    return []
   }
   return { metadata: {}, text, title: thisFile.name }
 }
@@ -90,10 +101,12 @@ export async function processProperties(
   edit: Edit,
   preview: boolean,
   dataviewFile: Record<string, any>
-): Promise<PreviewFile> {
+): Promise<PreviewFile | []> {
   invariant(edit?.type === 'property')
 
   let { text, metadata } = await getTextAndMetadata(thisFile)
+  const originalMetadata = _.cloneDeep(metadata)
+  const originalText = text
 
   for (let [property, thisEdit] of _.entries(edit.edit)) {
     const searchExp = findInlineFieldsRegex(property)
@@ -169,7 +182,11 @@ export async function processProperties(
     }
   }
 
-  if (!preview) setTextAndMetadata(thisFile, { text, metadata })
+  if (text === originalText && _.isEqual(metadata, originalMetadata)) return []
+
+  if (!preview) {
+    setTextAndMetadata(thisFile, { text, metadata })
+  }
 
   return { text, metadata, title: thisFile.name }
 }
@@ -178,10 +195,12 @@ export async function processTags(
   thisFile: TFile,
   edit: Edit,
   preview: boolean
-): Promise<PreviewFile> {
+): Promise<PreviewFile | []> {
   invariant(edit?.type === 'tag')
 
   let { text, metadata } = await getTextAndMetadata(thisFile)
+  const originalMetadata = _.cloneDeep(metadata)
+  const originalText = text
 
   for (let [tag, thisEdit] of _.entries(edit.edit)) {
     switch (thisEdit.action) {
@@ -209,6 +228,8 @@ export async function processTags(
         break
     }
   }
+
+  if (text === originalText && _.isEqual(metadata, originalMetadata)) return []
 
   if (!preview) setTextAndMetadata(thisFile, { text, metadata })
 

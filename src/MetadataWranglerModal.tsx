@@ -176,10 +176,13 @@ export default class MetadataWranglerModal extends Modal {
       .setName(`Edit Tag`)
       .addDropdown((dropdown) => {
         const options = _.fromPairs(
-          _.uniq(this.files['file']['tags']).map((x: string) => {
-            const formatted = x.toLowerCase().slice(1)
-            return [formatted, formatted] as [string, string]
-          })
+          _.sortBy(
+            _.uniq(this.files['file']['tags']).map((x: string) => {
+              const formatted = x.toLowerCase().slice(1)
+              return [formatted, formatted] as [string, string]
+            }),
+            '1'
+          )
         )
         dropdown.addOptions(options)
         selectTagDropdown = dropdown
@@ -351,7 +354,14 @@ export default class MetadataWranglerModal extends Modal {
         button.setButtonText('Preview').onClick(() => this.process(true))
       )
       .addButton((button) =>
-        button.setButtonText('Go').onClick(() => this.process(false))
+        button.setButtonText('Go').onClick(async () => {
+          const fileString = `${this.files.length} file${
+            this.files.length !== 1 ? 's' : ''
+          }`
+          if (!confirm(`Process ${fileString}?`)) return
+          await this.process(false)
+          new Notice(`Bulk Edit: processed ${fileString}`)
+        })
       )
     contentEl.appendChild(go)
     this.displayPreview = contentEl.appendChild(<div></div>)
@@ -390,7 +400,7 @@ export default class MetadataWranglerModal extends Modal {
   async process(preview = false) {
     if (!this.edit) return
 
-    const previews: Promise<PreviewFile>[] = this.files
+    const previews: Promise<PreviewFile | []>[] = this.files
       .map((file) => {
         invariant(this.edit)
         const thisFile = app.vault.getAbstractFileByPath(
@@ -414,6 +424,6 @@ export default class MetadataWranglerModal extends Modal {
       .array()
 
     const resolvedPreviews = await Promise.all(previews)
-    this.renderPreview(resolvedPreviews)
+    this.renderPreview(resolvedPreviews.flat())
   }
 }
