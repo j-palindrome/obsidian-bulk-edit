@@ -1,6 +1,6 @@
 import { Menu, Notice, Plugin, TAbstractFile } from 'obsidian'
 import { getAPI } from 'obsidian-dataview'
-import MetadataWranglerModal from './MetadataWranglerModal'
+import BulkEditModal from './BulkEditModal'
 
 interface MySettings {}
 const DEFAULT_SETTINGS: MySettings = {}
@@ -21,12 +21,10 @@ export default class MetadataWrangler extends Plugin {
       app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
         menu.addItem((item) =>
           item
-            .setTitle('Wrangle Metadata')
+            .setTitle('Bulk Edit File')
             .setIcon('layout-list')
             .onClick(() =>
-              new MetadataWranglerModal(
-                `"${file.path.replace('.md', '')}"`
-              ).open()
+              new BulkEditModal(`"${file.path.replace('.md', '')}"`).open()
             )
         )
       })
@@ -36,13 +34,11 @@ export default class MetadataWrangler extends Plugin {
       name: 'Bulk edit files',
       id: 'bulk-edit',
       callback: () => {
-        new MetadataWranglerModal('').open()
+        new BulkEditModal('').open()
       },
     })
 
-    this.addRibbonIcon('zap', 'Bulk Edit', () =>
-      new MetadataWranglerModal('').open()
-    )
+    this.addRibbonIcon('zap', 'Bulk Edit', () => new BulkEditModal('').open())
   }
 
   async loadSettings() {

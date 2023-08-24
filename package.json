@@ -6,6 +6,6 @@
   "keywords": [],
   "author": "",
   "scripts": {
-    "dev": "cd ../.. && npm run dev:mw"
+    "dev": "cd ../.. && npm run dev:be"
   }
 }

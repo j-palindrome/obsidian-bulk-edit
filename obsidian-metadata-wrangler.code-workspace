@@ -3,14 +3,12 @@
 	{
 		"path": "."
 	},
-	{
-		"path": "../../.."
-	}
 ],
   "settings": {
     "files.exclude": {
       "src/plugins": true,
       "src/views": true
-    }
+    },
+    "prettier.configPath": "../../../.prettierrc"
   }
 }

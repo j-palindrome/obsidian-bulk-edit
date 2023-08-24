@@ -20,7 +20,7 @@ import {
   processTags,
 } from './edits'
 
-export default class MetadataWranglerModal extends Modal {
+export default class BulkEditModal extends Modal {
   queryString: string
   dv: DataviewApi
   files: DataArray<Record<string, any>>
